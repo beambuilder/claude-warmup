@@ -2,28 +2,36 @@
 
 Manipulate Claude Code's 5-hour usage window into resetting when you actually need it.
 
-EDIT: You can apply the same concept and achieve the exact same goal in a "native" way by using a Claude Code Web scheduled task: https://claude.ai/code/scheduled. It works flawlessly! The "Why" section below is still very useful for visualizing why would you do this at all.
+> **Edit (2026-04-01):** You can apply the same concept and achieve the exact same goal in a "native" way by using a [Claude Code Web scheduled task](https://claude.ai/code/scheduled). It works flawlessly! The "Why" section below is still useful for visualizing why you'd do this at all.
+
+> **Edit (2026-04-30):** Anthropic seems to have changed the anchor behavior. The 5-hour window now starts at the exact minute of your first message, not floored to the clock hour. A cron at 6:00 AM now anchors a window from 6:00 AM to 11:00 AM. Pick a round-minute cron time so the reset lands cleanly.
 
 ## Why
 
-Claude Code gives you a token budget that resets every 5 hours. The window starts when you send your first message, floored to the clock hour.
+Claude Code gives you a token budget that resets every 5 hours. The window starts when you send your first message.
 
-So if you start at 8:30 AM and burn through your budget by 11, you're locked out until 1 PM. Two dead hours in the middle of your morning.
+You get the same amount of tokens either way. That's not the problem. The problem is _when_ the reset happens.
 
-The fix is dumb and it works: fire a throwaway message before you start working. A GitHub Actions cron sends "hi" to Haiku at 6:15 AM. The window floors to 6 AM, runs until 11. By the time you've hit the limit, it resets right away. Your next message anchors a fresh window through 4 PM.
+Say you start working at 8:30 AM. Your window opens at 8:30 AM and runs until 1:30 PM. You're coding hard, burning through tokens, and by 11 AM you hit the limit. Now what? Your window doesn't reset until 1:30 PM. That's two and a half hours of sitting around in the middle of your morning.
+
+Now say a cron job sends a throwaway "hi" at 6:00 AM while you're still asleep. The window opens at 6:00 AM and runs until 11:00 AM. You still start working at 8:30, you still burn through tokens by 11. But now the window resets _right when you need it_. No gap. Your next message starts a fresh window through 4 PM.
+
+You're not getting more tokens. You're just shifting the reset so it lands when you'd naturally take a break instead of when you're in the middle of something.
+
+This won't help you with your _weekly_ usage limits though.
 
 Example schedule:
 ```markdown
             6am    7     8     9    10    11    12    1pm    2     3     4     5    6pm
              |     |     |     |     |     |     |     |     |     |     |     |     |
 
-Before:                  [========== window 1 =========]
-                          work ~8:30am-11am  ░░ dead ░░
-                                                       [========== window 2 =========]
-                                                                work ~1pm-6pm
-          cron trigger
-               │
-               ▼
+Before:                    [============ window 1 ============]
+                            work ~8:30am-11am  ░░░ dead ░░░
+                                                             [============ window 2 ============]
+                                                                       work ~1:30pm-6pm
+        cron trigger
+             │
+             ▼
 After:       [========== window 1 =========]
               ░░ idle ░░  work ~8:30am-11am
                                            [========== window 2 =========]
@@ -32,7 +40,7 @@ After:       [========== window 1 =========]
                                                                          work ~4pm-6pm
 ```
 
-> As you can see, we are able to squeeze another fresh window starting at 4pm in this case.
+> Bonus: a third fresh window starts at 4pm.
 
 ## How it works
 
@@ -66,28 +74,28 @@ Paste when prompted.
 
 ### 4. Set your schedule
 
-Default is weekdays at 9:15 UTC.
+Default is weekdays at 9:00 UTC.
 
 GitHub Actions requires `on.schedule.cron` to be a literal value in the workflow file, so changing the schedule means editing `.github/workflows/warmup.yml` and updating this line:
 
 ```yml
-- cron: '15 9 * * 1-5'
+- cron: '0 9 * * 1-5'
 ```
 
 That's a standard cron expression in UTC. Common conversions:
 
-Need help generating one? Try [crontab.guru](https://crontab.guru/#15_9_*_*_1-5).
+Need help generating one? Try [crontab.guru](https://crontab.guru/#0_9_*_*_1-5).
 
-| Timezone | 6:15 AM local in UTC | Cron |
+| Timezone | 6:00 AM local in UTC | Cron |
 | --- | --- | --- |
-| US Pacific (UTC-7) | 1:15 PM | `15 13 * * 1-5` |
-| US Eastern (UTC-4) | 10:15 AM | `15 10 * * 1-5` |
-| US Central (UTC-5) | 11:15 AM | `15 11 * * 1-5` |
-| Central Europe (UTC+2) | 4:15 AM | `15 4 * * 1-5` |
-| Brazil BRT (UTC-3) | 9:15 AM | `15 9 * * 1-5` |
-| India IST (UTC+5:30) | 12:45 AM | `45 0 * * 1-5` |
-| Japan JST (UTC+9) | 9:15 PM prev day | `15 21 * * 0-4` |
-| Australia AEST (UTC+10) | 8:15 PM prev day | `15 20 * * 0-4` |
+| US Pacific (UTC-7) | 1:00 PM | `0 13 * * 1-5` |
+| US Eastern (UTC-4) | 10:00 AM | `0 10 * * 1-5` |
+| US Central (UTC-5) | 11:00 AM | `0 11 * * 1-5` |
+| Central Europe (UTC+2) | 4:00 AM | `0 4 * * 1-5` |
+| Brazil BRT (UTC-3) | 9:00 AM | `0 9 * * 1-5` |
+| India IST (UTC+5:30) | 12:30 AM | `30 0 * * 1-5` |
+| Japan JST (UTC+9) | 9:00 PM prev day | `0 21 * * 0-4` |
+| Australia AEST (UTC+10) | 8:00 PM prev day | `0 20 * * 0-4` |
 
 Pick something 2-4 hours before you usually start working (really depends on your usage pattern).
 
@@ -124,7 +132,7 @@ Next morning, run `/usage` in Claude Code. The session reset time should match y
 Some things about how Claude Code's 5-hour window actually works that aren't well documented anywhere (as of March 2026):
 
 - The window is a fixed block. Once set, boundaries don't move no matter how much you use.
-- Boundaries floor to clock hours. Message at 6:15 AM means window starts at 6:00 AM.
+- ~~Boundaries floor to clock hours. Message at 6:15 AM means window starts at 6:00 AM.~~ As of ~April 2026, the anchor is the exact minute of the first message. No flooring. Message at 6:15 AM means window starts at 6:15 AM.
 - Usage is shared between claude.ai, Claude Code, and Claude Desktop. One pool.
 - Budget is in tokens, not messages. Extended Thinking and tool use eat through it faster than regular chat.
 - There's a separate 7-day weekly cap on top of the 5-hour window. They don't interact.
